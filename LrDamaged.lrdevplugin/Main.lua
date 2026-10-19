@@ -122,7 +122,6 @@ local function run( context )
 	local stats = { replaced = 0, notFound = 0, failed = 0, skipped = 0 }
 	local proposals = {}
 
-	progress:setTitle( 'LR Damaged: verifica dei candidati' )
 	for i, item in ipairs( damaged ) do
 		if progress:isCanceled() then return end
 		progress:setPortionComplete( i - 1, #damaged )

@@ -1,20 +1,50 @@
 -- Controlli di integrità a livello di file (nessuna decodifica dell'immagine).
 -- Rileva: file mancante, vuoto/troppo piccolo, header errato, JPEG/PNG troncati,
--- coda riempita di zeri (file troncato o preallocato).
+-- RAW/TIFF/CR3 troncati (dati dichiarati oltre la fine del file), coda riempita di zeri.
 
 local LrFileUtils = import 'LrFileUtils'
 local LrPathUtils = import 'LrPathUtils'
+
+local ExifReader = require 'ExifReader'
 
 local Integrity = {}
 
 local MIN_SIZE = 1024
 local TAIL_ZERO_BYTES = 4096
 
-local TIFF_MAGICS = { 'II*\0', 'MM\0*', 'IIU\0', 'IIRO', 'IIRS' }
-local TIFF_LIKE = { tif = true, tiff = true, dng = true, cr2 = true, nef = true, nrw = true,
-	arw = true, srf = true, sr2 = true, orf = true, rw2 = true, pef = true, srw = true,
-	erf = true, kdc = true, dcr = true, mef = true, mos = true, iiq = true, x3f = false }
-local FTYP_LIKE = { cr3 = true, heic = true, heif = true, hif = true }
+-- Estensioni RAW (e TIFF) gestite da Lightroom Classic.
+Integrity.RAW_EXTENSIONS = {
+	'3fr',                                  -- Hasselblad
+	'ari',                                  -- ARRI
+	'arw', 'srf', 'sr2',                    -- Sony
+	'bay',                                  -- Casio
+	'cap', 'eip', 'iiq',                    -- Phase One
+	'cr2', 'cr3', 'crw',                    -- Canon
+	'dcr', 'dcs', 'kdc', 'k25',             -- Kodak
+	'dng',                                  -- Adobe / Leica / Pentax / smartphone
+	'erf',                                  -- Epson
+	'fff',                                  -- Imacon / Hasselblad
+	'gpr',                                  -- GoPro
+	'mef',                                  -- Mamiya
+	'mos',                                  -- Leaf
+	'mrw',                                  -- Minolta
+	'nef', 'nrw',                           -- Nikon
+	'orf',                                  -- Olympus / OM System
+	'pef', 'ptx',                           -- Pentax
+	'raf',                                  -- Fujifilm
+	'raw', 'rw2', 'rwl',                    -- Panasonic / Leica
+	'rwz',                                  -- Rawzor
+	'srw',                                  -- Samsung
+	'x3f',                                  -- Sigma
+	'tif', 'tiff',
+}
+
+local RAW = {}
+for _, e in ipairs( Integrity.RAW_EXTENSIONS ) do RAW[ e ] = true end
+
+-- Firme di inizio file plausibili per un RAW: TIFF (anche Olympus/Panasonic), Phase One, Sigma, Minolta,
+-- Canon CRW (CIFF), Fujifilm RAF; i formati ISO-BMFF (CR3, HEIC) si riconoscono da 'ftyp' a offset 4.
+local RAW_MAGICS = { 'II*\0', 'MM\0*', 'IIU\0', 'IIRO', 'IIRS', 'MMOR', 'IIII', 'FOVb', '\0MRM', 'II\26\0', 'FUJIFILM', 'ARRI' }
 
 local function readBytes( path, len, fromEnd )
 	local f = io.open( path, 'rb' )
@@ -30,6 +60,14 @@ local function readBytes( path, len, fromEnd )
 	f:close()
 	if ok then return data end
 	return nil
+end
+
+local function looksLikeRaw( head )
+	if head:sub( 5, 8 ) == 'ftyp' then return true end
+	for _, magic in ipairs( RAW_MAGICS ) do
+		if head:sub( 1, #magic ) == magic then return true end
+	end
+	return false
 end
 
 -- Ritorna true oppure false, motivo
@@ -71,21 +109,14 @@ function Integrity.check( path )
 		if not last:find( 'IEND', 1, true ) then
 			return false, 'PNG troncato (chunk IEND assente)'
 		end
-	elseif TIFF_LIKE[ ext ] then
-		local ok = false
-		for _, magic in ipairs( TIFF_MAGICS ) do
-			if head:sub( 1, 4 ) == magic then ok = true break end
+	elseif RAW[ ext ] or ext == 'heic' or ext == 'heif' or ext == 'hif' then
+		if not looksLikeRaw( head ) then
+			return false, 'header ' .. ext:upper() .. ' non valido'
 		end
-		if not ok then
-			return false, 'header TIFF/RAW non valido'
-		end
-	elseif FTYP_LIKE[ ext ] then
-		if head:sub( 5, 8 ) ~= 'ftyp' then
-			return false, 'header ISO-BMFF non valido'
-		end
-	elseif ext == 'raf' then
-		if head:sub( 1, 8 ) ~= 'FUJIFILM' then
-			return false, 'header RAF non valido'
+		-- Confronta i dati dichiarati nel file (strip, tile, anteprime, box mdat) con la dimensione reale
+		local ok, _, info = pcall( ExifReader.read, path )
+		if ok and info and info.maxEnd and info.maxEnd > size then
+			return false, string.format( 'file troncato (dati dichiarati fino a %d byte, file di %d)', info.maxEnd, size )
 		end
 	end
 

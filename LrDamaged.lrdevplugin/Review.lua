@@ -77,7 +77,7 @@ function Review.show( items )
 
 			local candidateThumb
 			if prev then
-				candidateThumb = f:picture { value = prev, width = 72, height = 72, frame_width = 0 }
+				candidateThumb = f:picture { value = prev, width = 72, height = 72 }
 			else
 				candidateThumb = f:static_text { title = '(nessuna\nanteprima)', width = 72, height = 72 }
 			end
@@ -132,7 +132,6 @@ function Review.show( items )
 			f:scrolled_view {
 				width = 960,
 				height = 480,
-				horizontal_scroller = false,
 				f:column( rows ),
 			},
 			f:static_text { title = 'Solo il file master viene sostituito (l\'originale danneggiato va in _lrdamaged_backup). Catalogo, metadati, date e sviluppo restano invariati.' },

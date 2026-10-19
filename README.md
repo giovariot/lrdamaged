@@ -37,6 +37,34 @@ Uso: `Libreria > Plug-in Extras > Trova e sostituisci immagini danneggiate...`
 
 Nulla viene modificato finché non confermi nella finestra di riepilogo; anche le righe non approvate finiscono nel log.
 
+## Formati supportati
+Estensioni controllate (header + coerenza dei dati dichiarati): 3FR ARI ARW BAY CAP CR2 CR3 CRW DCR DCS DNG EIP ERF
+FFF GPR IIQ K25 KDC MEF MOS MRW NEF NRW ORF PEF PTX RAF RAW RW2 RWL RWZ SRF SR2 SRW X3F TIF/TIFF, più JPEG, PNG e HEIC.
+- **Troncamento RAW**: per i RAW basati su TIFF si confrontano strip/tile/anteprime dichiarati negli IFD con la
+  dimensione reale del file; per CR3 si controllano i box ISO-BMFF di primo livello (es. `mdat` oltre la fine).
+- **EXIF + anteprima incorporata** letti da: formati TIFF-based (Canon CR2, Nikon NEF/NRW, Sony ARW/SR2/SRF, Pentax
+  PEF/DNG, Panasonic RW2/RWL, Olympus ORF, Samsung SRW, Hasselblad 3FR/FFF, Phase One IIQ, Epson ERF, Mamiya MEF,
+  Kodak DCR/KDC, GoPro GPR...), Fujifilm RAF, Canon CR3, Minolta MRW, JPEG.
+- **Solo header (niente EXIF/hash, ricade sul nome)**: Canon CRW, Sigma X3F, HEIC.
+- Verificato con file sintetici costruiti a mano (TIFF/NEF, CR3, MRW, JPEG), non con RAW reali di fotocamera:
+  alcune varianti di fabbricante potrebbero comportarsi diversamente.
+
+## API di Lightroom utilizzate
+Il codice usa solo funzioni dell'SDK di Lightroom Classic (Lua 5.1). Stato della verifica (il riferimento
+ufficiale non era raggiungibile dall'ambiente di sviluppo, quindi la verifica è su fonti secondarie):
+- *Confermate da fonti pubbliche*: `LrFileUtils.recursiveFiles/move/copy/chooseUniqueFileName/createAllDirectories`,
+  `catalog:createCollection(nome, nil, true)` dentro `withWriteAccessDo`, `collection:addPhotos`,
+  `photo:requestJpegThumbnail(w, h, callback)`, `LrProgressScope` (`setPortionComplete`, `isCanceled`, `done`,
+  `functionContext` nel costruttore), `getRawMetadata('dateTimeOriginalISO8601')`, vista `scrolled_view` e `catalog_photo`.
+- *Da conoscenza dell'SDK, non riconfermate*: `LrFileUtils.fileAttributes().fileSize`, `LrPathUtils.*`,
+  `LrDialogs.runOpenPanel/presentModalDialog/message`, `LrBinding.makePropertyTable` + `addObserver`,
+  `getRawMetadata('isoSpeedRating'|'focalLength'|'aperture'|'shutterSpeed'|'path')`.
+- *Chiavi dei metadati non confermate*: `getFormattedMetadata('cameraMake'|'cameraModel'|'cameraSerialNumber'|'lens')`.
+  Se una chiave non esiste Lightroom lancia errore: ogni lettura è in `pcall`, quindi quel campo viene
+  semplicemente ignorato nel confronto EXIF.
+- Rimosso perché non riscontrato nell'SDK: `LrProgressScope:setTitle` (il titolo si passa al costruttore).
+- Il tempo di posa e il diaframma grezzi possono essere in unità normali o APEX: il confronto accetta entrambe.
+
 ## Limiti noti
 - I controlli sono a livello di file, non decodificano i pixel: un RAW corrotto a metà ma con header e coda
   integri non viene rilevato.
