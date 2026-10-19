@@ -50,20 +50,25 @@ FFF GPR IIQ K25 KDC MEF MOS MRW NEF NRW ORF PEF PTX RAF RAW RW2 RWL RWZ SRF SR2 
   alcune varianti di fabbricante potrebbero comportarsi diversamente.
 
 ## API di Lightroom utilizzate
-Il codice usa solo funzioni dell'SDK di Lightroom Classic (Lua 5.1). Stato della verifica (il riferimento
-ufficiale non era raggiungibile dall'ambiente di sviluppo, quindi la verifica è su fonti secondarie):
-- *Confermate da fonti pubbliche*: `LrFileUtils.recursiveFiles/move/copy/chooseUniqueFileName/createAllDirectories`,
-  `catalog:createCollection(nome, nil, true)` dentro `withWriteAccessDo`, `collection:addPhotos`,
-  `photo:requestJpegThumbnail(w, h, callback)`, `LrProgressScope` (`setPortionComplete`, `isCanceled`, `done`,
-  `functionContext` nel costruttore), `getRawMetadata('dateTimeOriginalISO8601')`, vista `scrolled_view` e `catalog_photo`.
-- *Da conoscenza dell'SDK, non riconfermate*: `LrFileUtils.fileAttributes().fileSize`, `LrPathUtils.*`,
-  `LrDialogs.runOpenPanel/presentModalDialog/message`, `LrBinding.makePropertyTable` + `addObserver`,
-  `getRawMetadata('isoSpeedRating'|'focalLength'|'aperture'|'shutterSpeed'|'path')`.
-- *Chiavi dei metadati non confermate*: `getFormattedMetadata('cameraMake'|'cameraModel'|'cameraSerialNumber'|'lens')`.
-  Se una chiave non esiste Lightroom lancia errore: ogni lettura è in `pcall`, quindi quel campo viene
-  semplicemente ignorato nel confronto EXIF.
-- Rimosso perché non riscontrato nell'SDK: `LrProgressScope:setTitle` (il titolo si passa al costruttore).
-- Il tempo di posa e il diaframma grezzi possono essere in unità normali o APEX: il confronto accetta entrambe.
+Ogni chiamata dell'SDK è stata confrontata con il riferimento ufficiale (Lightroom SDK 5/6, copia in
+[`giovariot/api-references`](https://github.com/giovariot/api-references), cartella `lightroom-sdk`).
+- **Verificate nel riferimento**: `LrApplication.activeCatalog`; `catalog:getTargetPhotos/getAllPhotos/withWriteAccessDo/createCollection(nome, parent, canReturnPrior)`;
+  `collection:addPhotos` (ammesso nello stesso gate che crea la collezione); `photo:getRawMetadata` (`path`,
+  `dateTimeOriginalISO8601`, `dateTimeISO8601`, `isoSpeedRating`, `focalLength`, `aperture` = denominatore f, `shutterSpeed` = secondi);
+  `photo:getFormattedMetadata` (`cameraMake`, `cameraModel`, `cameraSerialNumber`, `lens`); `photo:requestJpegThumbnail(w, h, callback)`;
+  `LrFileUtils.exists/fileAttributes/move/copy/delete/chooseUniqueFileName/createAllDirectories/recursiveFiles`;
+  `LrPathUtils.leafName/parent/child/extension/getStandardFilePath('documents'|'temp')`; `LrProgressScope` (`title`, `functionContext`,
+  `setPortionComplete`, `setCaption`, `isCanceled`, `done`); `LrDialogs.runOpenPanel/presentModalDialog/message`;
+  `LrBinding.makePropertyTable` + `addObserver`; `LrDate.currentTime/timeToUserFormat`; `LrTasks.startAsyncTask/yield/sleep/pcall`;
+  `LrFunctionContext.callWithContext`; `LrView.osFactory/bind` con `column row static_text checkbox radio_button push_button
+  separator spacer picture catalog_photo scrolled_view`.
+- **Correzioni emerse dalla verifica**: `LrTasks.pcall` al posto di `pcall` attorno al codice che cede il controllo (il `pcall` standard
+  non può attraversare gli yield); `recursiveFiles` senza `break`/`return` nel ciclo (lascerebbe aperto l'handle);
+  `createAllDirectories` ritorna `true` solo se ha creato qualcosa, quindi l'esito si controlla con `exists`; diaframma e tempo grezzi
+  sono numeri normali, non APEX; rimosso `LrProgressScope:setTitle` (non esiste).
+- **Non coperto dal riferimento**: le chiavi di `Info.lua` (`LrSdkVersion`, `LrToolkitIdentifier`, `LrPluginName`,
+  `LrLibraryMenuItems`, `VERSION`) sono documentate a parte; il valore di `f:picture` è descritto come risorsa del plugin: il
+  plugin gli passa il percorso di un file temporaneo e, se Lightroom non lo accetta, l'anteprima del sostituto non appare (il resto funziona).
 
 ## Limiti noti
 - I controlli sono a livello di file, non decodificano i pixel: un RAW corrotto a metà ma con header e coda

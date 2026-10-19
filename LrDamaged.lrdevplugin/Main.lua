@@ -24,7 +24,7 @@ local function askOptions( context )
 		bind_to_object = props,
 		spacing = f:control_spacing(),
 		f:static_text { title = 'Ambito della scansione' },
-		f:radio_button { title = 'Solo foto selezionate', value = LrView.bind( 'scope' ), checked_value = 'selection' },
+		f:radio_button { title = 'Foto selezionate (senza selezione: tutte quelle della griglia attuale)', value = LrView.bind( 'scope' ), checked_value = 'selection' },
 		f:radio_button { title = 'Tutto il catalogo', value = LrView.bind( 'scope' ), checked_value = 'catalog' },
 		f:separator { fill_horizontal = 1 },
 		f:static_text { title = 'Cartella dove cercare i file sostitutivi (ricerca ricorsiva)' },
@@ -203,7 +203,7 @@ end
 
 LrTasks.startAsyncTask( function()
 	LrFunctionContext.callWithContext( 'LrDamaged', function( context )
-		local ok, err = pcall( run, context )
+		local ok, err = LrTasks.pcall( run, context )
 		if not ok then
 			LrDialogs.message( 'LR Damaged - errore', tostring( err ), 'critical' )
 		end

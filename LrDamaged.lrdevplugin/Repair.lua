@@ -15,15 +15,16 @@ function Repair.replaceFile( originalPath, candidatePath )
 	local parent = LrPathUtils.parent( originalPath )
 	local backupPath = nil
 
+	-- createAllDirectories ritorna true solo se ha creato almeno una cartella: l'esito si verifica con exists()
+	LrFileUtils.createAllDirectories( parent )
 	if LrFileUtils.exists( parent ) ~= 'directory' then
-		if not LrFileUtils.createAllDirectories( parent ) then
-			return false, 'impossibile creare la cartella ' .. parent
-		end
+		return false, 'impossibile creare la cartella ' .. parent
 	end
 
 	if LrFileUtils.exists( originalPath ) == 'file' then
 		local backupDir = LrPathUtils.child( parent, BACKUP_DIR )
-		if not LrFileUtils.createAllDirectories( backupDir ) then
+		LrFileUtils.createAllDirectories( backupDir )
+		if LrFileUtils.exists( backupDir ) ~= 'directory' then
 			return false, 'impossibile creare la cartella di backup'
 		end
 		backupPath = LrFileUtils.chooseUniqueFileName( LrPathUtils.child( backupDir, LrPathUtils.leafName( originalPath ) ) )

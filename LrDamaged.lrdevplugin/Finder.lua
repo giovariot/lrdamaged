@@ -11,22 +11,26 @@ local Finder = {}
 -- Indicizza ricorsivamente la cartella: nome file (minuscolo) -> lista di percorsi.
 -- Ritorna nil se l'utente annulla.
 function Finder.buildIndex( folder, progress )
-	local index, count = {}, 0
+	local index, count, canceled = {}, 0, false
+	-- recursiveFiles lascia aperto un handle finché il ciclo non termina normalmente: niente break/return qui dentro
 	for path in LrFileUtils.recursiveFiles( folder ) do
-		local key = LrPathUtils.leafName( path ):lower()
-		local list = index[ key ]
-		if not list then
-			list = {}
-			index[ key ] = list
-		end
-		list[ #list + 1 ] = path
+		if not canceled then
+			local key = LrPathUtils.leafName( path ):lower()
+			local list = index[ key ]
+			if not list then
+				list = {}
+				index[ key ] = list
+			end
+			list[ #list + 1 ] = path
 
-		count = count + 1
-		if count % 200 == 0 then
-			LrTasks.yield()
-			if progress and progress:isCanceled() then return nil end
+			count = count + 1
+			if count % 200 == 0 then
+				LrTasks.yield()
+				if progress and progress:isCanceled() then canceled = true end
+			end
 		end
 	end
+	if canceled then return nil end
 	return index, count
 end
 

@@ -37,7 +37,8 @@ local function near( a, b, tol )
 end
 
 local function safe( fn )
-	local ok, v = pcall( fn )
+	-- LrTasks.pcall (non pcall): le chiamate dell'SDK possono cedere il controllo al task
+	local ok, v = LrTasks.pcall( fn )
 	if ok then return v end
 	return nil
 end
@@ -91,15 +92,12 @@ function Matcher.compareExif( meta, exif )
 	if type( meta.focal ) == 'number' and exif.focal then
 		hard( 'focale', math.abs( meta.focal - exif.focal ) <= math.max( 0.6, exif.focal * 0.02 ), meta.focal .. ' <> ' .. exif.focal )
 	end
-	-- Il valore grezzo può essere un numero f oppure un valore APEX: accetta entrambe le interpretazioni.
+	-- Secondo l'SDK: aperture = denominatore del diaframma (es. 2.8), shutterSpeed = secondi
 	if type( meta.aperture ) == 'number' and exif.fnumber then
-		hard( 'diaframma', near( meta.aperture, exif.fnumber, 0.04) or near( 2 ^ (meta.aperture / 2), exif.fnumber, 0.04 ),
-			meta.aperture .. ' <> f/' .. exif.fnumber )
+		hard( 'diaframma', near( meta.aperture, exif.fnumber, 0.04 ), meta.aperture .. ' <> f/' .. exif.fnumber )
 	end
-	-- Il tempo di posa grezzo può essere in secondi oppure APEX (Tv).
 	if type( meta.shutter ) == 'number' and exif.exposure then
-		hard( 'tempo', near( meta.shutter, exif.exposure, 0.06 ) or near( 2 ^ (-meta.shutter), exif.exposure, 0.06 ),
-			meta.shutter .. ' <> ' .. exif.exposure )
+		hard( 'tempo', near( meta.shutter, exif.exposure, 0.06 ), meta.shutter .. ' <> ' .. exif.exposure )
 	end
 	return r
 end
@@ -140,7 +138,8 @@ function Matcher.lrPreviewHashes( photo )
 		LrTasks.sleep( 0.05 )
 	end
 	local _ = request -- mantiene il riferimento fino alla fine della richiesta
-	if not data then return nil end
+	-- L'SDK tratta le dimensioni richieste come minimi: scarta anteprime troppo grandi da decodificare in Lua
+	if not data or #data > 600 * 1024 then return nil end
 	return JpegDC.hashes( JpegDC.decode( data ) )
 end
 
