@@ -11,12 +11,13 @@ local LrView = import 'LrView'
 local Integrity = require 'Integrity'
 local Finder = require 'Finder'
 local Repair = require 'Repair'
+local Matcher = require 'Matcher'
+local Review = require 'Review'
 
 local function askOptions( context )
 	local f = LrView.osFactory()
 	local props = LrBinding.makePropertyTable( context )
 	props.scope = 'selection'
-	props.dryRun = true
 	props.folder = ''
 
 	local contents = f:column {
@@ -43,8 +44,7 @@ local function askOptions( context )
 			},
 		},
 		f:separator { fill_horizontal = 1 },
-		f:static_text { title = 'Verrà sostituito solo il file master: voce di catalogo, metadati, date e sviluppo restano invariati.' },
-		f:checkbox { title = 'Solo simulazione (non modifica nulla)', value = LrView.bind( 'dryRun' ) },
+		f:static_text { title = 'Il file sostitutivo viene riconosciuto da nome + EXIF (o anteprima). Prima di sostituire vedrai un riepilogo da confermare.' },
 	}
 
 	local result = LrDialogs.presentModalDialog {
@@ -57,7 +57,7 @@ local function askOptions( context )
 		LrDialogs.message( 'LR Damaged', 'Seleziona la cartella con i file sostitutivi.', 'warning' )
 		return nil
 	end
-	return { scope = props.scope, dryRun = props.dryRun, folder = props.folder }
+	return { scope = props.scope, folder = props.folder }
 end
 
 local function writeLog( lines )
@@ -112,47 +112,79 @@ local function run( context )
 	local index, indexed = Finder.buildIndex( opts.folder, progress )
 	if not index then return end
 
-	-- 3) Sostituzione
+	-- 3) Ricerca e verifica dei candidati
 	local log = {
 		'LR Damaged - ' .. LrDate.timeToUserFormat( LrDate.currentTime(), '%Y-%m-%d %H:%M:%S' ),
 		'Cartella sostitutivi: ' .. opts.folder .. ' (' .. indexed .. ' file indicizzati)',
-		'Modalità: solo sostituzione del master' .. ( opts.dryRun and ' [SIMULAZIONE]' or '' ),
 		'Foto analizzate: ' .. #photos .. ' - danneggiate: ' .. #damaged,
 		'',
 	}
-	local replacedPhotos = {}
-	local stats = { replaced = 0, notFound = 0, failed = 0 }
+	local stats = { replaced = 0, notFound = 0, failed = 0, skipped = 0 }
+	local proposals = {}
 
-	progress:setTitle( 'LR Damaged: sostituzione' )
+	progress:setTitle( 'LR Damaged: verifica dei candidati' )
 	for i, item in ipairs( damaged ) do
-		if progress:isCanceled() then
-			log[ #log + 1 ] = 'INTERROTTO dall\'utente'
-			break
-		end
+		if progress:isCanceled() then return end
 		progress:setPortionComplete( i - 1, #damaged )
 		progress:setCaption( LrPathUtils.leafName( item.path ) )
 
-		local candidate, info = Finder.pick( index, item.path )
-		if not candidate then
-			stats.notFound = stats.notFound + 1
-			log[ #log + 1 ] = string.format( 'NON TROVATO  %s [%s] -> %s', item.path, item.reason, info )
-		elseif opts.dryRun then
-			stats.replaced = stats.replaced + 1
-			log[ #log + 1 ] = string.format( 'SOSTITUIREBBE %s [%s] <- %s (candidati validi: %d)', item.path, item.reason, candidate, info )
+		local list, why = Finder.candidates( index, item.path )
+		local proposal
+		if list then
+			local ctx = { photo = item.photo, meta = Matcher.photoMeta( item.photo ) }
+			proposal, why = Matcher.best( ctx, list )
+		end
+		if proposal then
+			item.proposal = proposal
+			proposals[ #proposals + 1 ] = item
 		else
-			local ok, res = Repair.replaceFile( item.path, candidate )
-			if ok then
-				stats.replaced = stats.replaced + 1
-				replacedPhotos[ #replacedPhotos + 1 ] = item.photo
-				log[ #log + 1 ] = string.format( 'SOSTITUITO   %s [%s] <- %s (backup: %s)', item.path, item.reason, candidate, tostring( res ) )
-			else
-				stats.failed = stats.failed + 1
-				log[ #log + 1 ] = string.format( 'ERRORE       %s -> %s', item.path, res )
-			end
+			stats.notFound = stats.notFound + 1
+			log[ #log + 1 ] = string.format( 'NON TROVATO  %s [%s] -> %s', item.path, item.reason, tostring( why ) )
 		end
 		LrTasks.yield()
 	end
 	progress:done()
+
+	if #proposals == 0 then
+		local logPath = writeLog( log )
+		LrDialogs.message( 'LR Damaged', string.format( '%d foto danneggiate, nessun sostituto affidabile trovato.\n\nLog: %s', #damaged, tostring( logPath ) ), 'info' )
+		return
+	end
+
+	-- 4) Conferma dell'utente
+	local approved = Review.show( proposals )
+	if not approved then return end
+	stats.skipped = #proposals - #approved
+	for _, item in ipairs( proposals ) do
+		local chosen = false
+		for _, a in ipairs( approved ) do if a == item then chosen = true break end end
+		if not chosen then
+			log[ #log + 1 ] = string.format( 'SALTATO      %s (non approvato) <- %s [%s]', item.path, item.proposal.path, item.proposal.reason )
+		end
+	end
+
+	-- 5) Sostituzione dei file approvati
+	local replacedPhotos = {}
+	local apply = LrProgressScope { title = 'LR Damaged: sostituzione', functionContext = context }
+	for i, item in ipairs( approved ) do
+		if apply:isCanceled() then
+			log[ #log + 1 ] = 'INTERROTTO dall\'utente'
+			break
+		end
+		apply:setPortionComplete( i - 1, #approved )
+		apply:setCaption( LrPathUtils.leafName( item.path ) )
+		local ok, res = Repair.replaceFile( item.path, item.proposal.path )
+		if ok then
+			stats.replaced = stats.replaced + 1
+			replacedPhotos[ #replacedPhotos + 1 ] = item.photo
+			log[ #log + 1 ] = string.format( 'SOSTITUITO   %s [%s] <- %s [%s: %s] (backup: %s)', item.path, item.reason, item.proposal.path, item.proposal.confidence, item.proposal.reason, tostring( res ) )
+		else
+			stats.failed = stats.failed + 1
+			log[ #log + 1 ] = string.format( 'ERRORE       %s -> %s', item.path, res )
+		end
+		LrTasks.yield()
+	end
+	apply:done()
 
 	-- Raccoglie le foto sostituite in una collezione, per ricostruire facilmente le anteprime.
 	if #replacedPhotos > 0 then
@@ -165,9 +197,8 @@ local function run( context )
 	local logPath = writeLog( log )
 	LrDialogs.message(
 		'LR Damaged - Risultato',
-		string.format( 'Foto analizzate: %d\nDanneggiate: %d\n%s: %d\nNon trovate: %d\nErrori: %d\n\nLog: %s',
-			#photos, #damaged, opts.dryRun and 'Sostituibili' or 'Sostituite', stats.replaced,
-			stats.notFound, stats.failed, tostring( logPath ) ),
+		string.format( 'Foto analizzate: %d\nDanneggiate: %d\nSostituite: %d\nNon approvate: %d\nSostituto non trovato: %d\nErrori: %d\n\nLog: %s',
+			#photos, #damaged, stats.replaced, stats.skipped, stats.notFound, stats.failed, tostring( logPath ) ),
 		'info' )
 end
 

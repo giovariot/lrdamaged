@@ -30,35 +30,27 @@ function Finder.buildIndex( folder, progress )
 	return index, count
 end
 
--- Sceglie il miglior candidato integro per il file originale.
--- Ritorna candidato, numeroCandidatiValidi  oppure  nil, motivo
-function Finder.pick( index, originalPath )
+-- Percorsi candidati integri con lo stesso nome del file originale (escluso l'originale stesso).
+-- Ritorna lista, oppure nil, motivo
+function Finder.candidates( index, originalPath )
 	local list = index[ LrPathUtils.leafName( originalPath ):lower() ]
 	if not list then
 		return nil, 'nessun file con lo stesso nome nella cartella'
 	end
 
 	local original = originalPath:lower()
-	local best, bestSize, valid, lastReason = nil, -1, 0, nil
+	local valid, lastReason = {}, nil
 	for _, path in ipairs( list ) do
 		if path:lower() ~= original then
 			local ok, reason = Integrity.check( path )
-			if ok then
-				valid = valid + 1
-				local size = Integrity.fileSize( path )
-				if size > bestSize then
-					best, bestSize = path, size
-				end
-			else
-				lastReason = reason
-			end
+			if ok then valid[ #valid + 1 ] = path else lastReason = reason end
 		end
 	end
 
-	if not best then
+	if #valid == 0 then
 		return nil, 'candidati trovati ma tutti danneggiati (' .. tostring( lastReason ) .. ')'
 	end
-	return best, valid
+	return valid
 end
 
 return Finder
