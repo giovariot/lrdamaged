@@ -16,7 +16,6 @@ local function askOptions( context )
 	local f = LrView.osFactory()
 	local props = LrBinding.makePropertyTable( context )
 	props.scope = 'selection'
-	props.mode = 'reimport'
 	props.dryRun = true
 	props.folder = ''
 
@@ -44,15 +43,7 @@ local function askOptions( context )
 			},
 		},
 		f:separator { fill_horizontal = 1 },
-		f:static_text { title = 'Modalità di sostituzione' },
-		f:radio_button {
-			title = 'Sostituisci il file e reimporta in Lightroom (mantiene rating, etichetta, parole chiave, collezioni, sviluppo)',
-			value = LrView.bind( 'mode' ), checked_value = 'reimport',
-		},
-		f:radio_button {
-			title = 'Sostituisci solo il file (poi: Metadati > Leggi metadati dal file)',
-			value = LrView.bind( 'mode' ), checked_value = 'inplace',
-		},
+		f:static_text { title = 'Verrà sostituito solo il file master: voce di catalogo, metadati, date e sviluppo restano invariati.' },
 		f:checkbox { title = 'Solo simulazione (non modifica nulla)', value = LrView.bind( 'dryRun' ) },
 	}
 
@@ -66,7 +57,7 @@ local function askOptions( context )
 		LrDialogs.message( 'LR Damaged', 'Seleziona la cartella con i file sostitutivi.', 'warning' )
 		return nil
 	end
-	return { scope = props.scope, mode = props.mode, dryRun = props.dryRun, folder = props.folder }
+	return { scope = props.scope, dryRun = props.dryRun, folder = props.folder }
 end
 
 local function writeLog( lines )
@@ -125,10 +116,11 @@ local function run( context )
 	local log = {
 		'LR Damaged - ' .. LrDate.timeToUserFormat( LrDate.currentTime(), '%Y-%m-%d %H:%M:%S' ),
 		'Cartella sostitutivi: ' .. opts.folder .. ' (' .. indexed .. ' file indicizzati)',
-		'Modalità: ' .. opts.mode .. ( opts.dryRun and ' [SIMULAZIONE]' or '' ),
+		'Modalità: solo sostituzione del master' .. ( opts.dryRun and ' [SIMULAZIONE]' or '' ),
 		'Foto analizzate: ' .. #photos .. ' - danneggiate: ' .. #damaged,
 		'',
 	}
+	local replacedPhotos = {}
 	local stats = { replaced = 0, notFound = 0, failed = 0 }
 
 	progress:setTitle( 'LR Damaged: sostituzione' )
@@ -148,31 +140,27 @@ local function run( context )
 			stats.replaced = stats.replaced + 1
 			log[ #log + 1 ] = string.format( 'SOSTITUIREBBE %s [%s] <- %s (candidati validi: %d)', item.path, item.reason, candidate, info )
 		else
-			local snap = opts.mode == 'reimport' and Repair.snapshot( item.photo ) or nil
 			local ok, res = Repair.replaceFile( item.path, candidate )
-			if not ok then
+			if ok then
+				stats.replaced = stats.replaced + 1
+				replacedPhotos[ #replacedPhotos + 1 ] = item.photo
+				log[ #log + 1 ] = string.format( 'SOSTITUITO   %s [%s] <- %s (backup: %s)', item.path, item.reason, candidate, tostring( res ) )
+			else
 				stats.failed = stats.failed + 1
 				log[ #log + 1 ] = string.format( 'ERRORE       %s -> %s', item.path, res )
-			elseif opts.mode == 'reimport' then
-				local newPhoto, err
-				catalog:withWriteAccessDo( 'LR Damaged: reimporta foto', function()
-					newPhoto, err = Repair.reimport( catalog, item.photo, item.path, snap )
-				end )
-				if newPhoto then
-					stats.replaced = stats.replaced + 1
-					log[ #log + 1 ] = string.format( 'SOSTITUITO   %s [%s] <- %s (backup: %s)', item.path, item.reason, candidate, tostring( res ) )
-				else
-					stats.failed = stats.failed + 1
-					log[ #log + 1 ] = string.format( 'ERRORE       %s -> file sostituito ma %s', item.path, tostring( err ) )
-				end
-			else
-				stats.replaced = stats.replaced + 1
-				log[ #log + 1 ] = string.format( 'SOSTITUITO   %s [%s] <- %s (backup: %s)', item.path, item.reason, candidate, tostring( res ) )
 			end
 		end
 		LrTasks.yield()
 	end
 	progress:done()
+
+	-- Raccoglie le foto sostituite in una collezione, per ricostruire facilmente le anteprime.
+	if #replacedPhotos > 0 then
+		catalog:withWriteAccessDo( 'LR Damaged: collezione foto sostituite', function()
+			local coll = catalog:createCollection( 'LR Damaged - sostituite', nil, true )
+			if coll then coll:addPhotos( replacedPhotos ) end
+		end )
+	end
 
 	local logPath = writeLog( log )
 	LrDialogs.message(

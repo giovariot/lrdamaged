@@ -14,10 +14,11 @@ Uso: `Libreria > Plug-in Extras > Trova e sostituisci immagini danneggiate...`
    (case-insensitive). I candidati sono a loro volta controllati; se ce n'è più di uno valido vince il più grande.
 3. **Sostituzione**: il file danneggiato viene spostato in `_lrdamaged_backup` accanto all'originale, il
    sostitutivo viene copiato nello stesso percorso e verificato (rollback automatico in caso di errore).
-4. **Reimportazione** (modalità predefinita): la voce di catalogo viene rimossa e il file riaggiunto,
-   riapplicando rating, etichetta colore, flag, titolo/didascalia, parole chiave, collezioni (non smart)
-   e impostazioni di sviluppo. Non vengono ripristinati: pile, cronologia sviluppo, copie virtuali, posizione in griglia.
-   In alternativa "solo file": il catalogo resta intatto e si usa `Metadati > Leggi metadati dal file`.
+4. **Catalogo invariato**: la voce di catalogo non viene rimossa né reimportata, quindi metadati, date,
+   sviluppo, collezioni, pile e copie virtuali restano identici; cambia solo il file master sul disco.
+   Le foto sostituite vengono aggiunte alla collezione `LR Damaged - sostituite`: selezionale e usa
+   `Libreria > Anteprime > Crea anteprime in formato standard` per rigenerare le anteprime.
+   **Non** usare `Leggi metadati dal file` (sovrascriverebbe i metadati del catalogo con quelli del sostituto).
 5. Un log viene scritto in `Documenti/LrDamaged_<data>.txt`.
 
 La **simulazione** è attiva di default: non tocca nulla e produce solo il log.
@@ -25,5 +26,7 @@ La **simulazione** è attiva di default: non tocca nulla e produce solo il log.
 ## Limiti noti
 - I controlli sono a livello di file, non decodificano i pixel: un RAW corrotto a metà ma con header e coda
   integri non viene rilevato.
+- Il sostituto dovrebbe avere stesse dimensioni e orientamento dell'originale, altrimenti ritaglio e sviluppo
+  salvati nel catalogo potrebbero non combaciare (il plugin non lo verifica).
 - Il codice non è stato eseguito dentro Lightroom Classic (non disponibile nell'ambiente di sviluppo):
   provarlo prima su una copia del catalogo e con la simulazione.
